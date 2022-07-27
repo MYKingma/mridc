@@ -1,8 +1,6 @@
 # encoding: utf-8
 __author__ = "Dimitrios Karkalousos"
 
-# Parts of the code have been taken from https://github.com/facebookresearch/fastMRI
-
 from math import sqrt
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -10,9 +8,19 @@ import numpy as np
 import torch
 
 from mridc.collections.common.parts.fft import fft2, ifft2
-from mridc.collections.common.parts.utils import is_none, reshape_fortran, rss, sense, to_tensor
+from mridc.collections.common.parts.utils import (
+    complex_conj,
+    complex_mul,
+    is_none,
+    reshape_fortran,
+    rss,
+    sense,
+    to_tensor,
+)
 from mridc.collections.reconstruction.data.subsample import MaskFunc
-from mridc.collections.reconstruction.parts.utils import apply_mask, center_crop, complex_center_crop
+from mridc.collections.reconstruction.parts.utils import apply_mask, center_crop, complex_center_crop, mask_center
+from mridc.collections.reconstruction.data.ssl_subsample import SSDUMasker
+
 
 __all__ = ["MRIDataTransforms"]
 
@@ -47,6 +55,9 @@ class MRIDataTransforms:
         max_norm: bool = True,
         spatial_dims: Sequence[int] = None,
         coil_dim: int = 0,
+        self_supervised: Union[str, None] = None,
+        reference_kspace_normalization: bool = False,
+        self_supervised_masking_type: Union[str, None] = None,
         use_seed: bool = True,
     ):
         """
@@ -54,23 +65,64 @@ class MRIDataTransforms:
 
         Parameters
         ----------
-        coil_combination_method : The coil combination method to use. Default: 'SENSE'
-        dimensionality : The dimensionality of the data. Default: 2
-        mask_func: The function that masks the kspace.
-        shift_mask: Whether to shift the mask.
-        mask_center_scale: The scale of the center of the mask.
-        half_scan_percentage: The percentage of the scan to be used.
-        remask: Whether to only generate 1 mask per set of consecutive slices of 3D data.
-        crop_size: The size of the crop.
-        kspace_crop: Whether to crop the kspace.
-        crop_before_masking: Whether to crop before masking.
-        kspace_zero_filling_size: The size of padding in kspace -> zero filling.
-        normalize_inputs: Whether to normalize the inputs.
-        fft_centered: Whether to center the fft.
-        fft_normalization: The normalization of the fft.
-        spatial_dims: The spatial dimensions of the data.
-        coil_dim: The coil dimension of the data.
-        use_seed: Whether to use the seed.
+        apply_prewhitening : bool
+            Whether to apply prewhitening.
+        prewhitening_scale_factor : float
+            The scale factor for the prewhitening.
+        prewhitening_patch_start : int
+            The start index for the prewhitening patch.
+        prewhitening_patch_length : int
+            The length of the prewhitening patch.
+        apply_gcc : bool
+            Whether to apply GCC.
+        gcc_virtual_coils : int
+            The number of virtual coils.
+        gcc_calib_lines : int
+            The number of calibration lines.
+        gcc_align_data : bool
+            Whether to align the data.
+        coil_combination_method : str
+            The coil combination method.
+        dimensionality : int
+            The dimensionality of the data.
+        mask_func : Optional[List[MaskFunc]]
+            The mask functions.
+        shift_mask : bool
+            Whether to shift the mask.
+        mask_center_scale : Optional[float]
+            The scale for the mask center.
+        half_scan_percentage : float
+            The percentage of the scan to use.
+        remask : bool
+            Whether to remask the data.
+        crop_size : Optional[Tuple[int, int]]
+            The crop size.
+        kspace_crop : bool
+            Whether to crop the kspace.
+        crop_before_masking : bool
+            Whether to crop before masking.
+        kspace_zero_filling_size : Optional[Tuple]
+            The zero filling size.
+        normalize_inputs : bool
+            Whether to normalize the inputs.
+        fft_centered : bool
+            Whether to center the FFT.
+        fft_normalization : str
+            The FFT normalization.
+        max_norm : bool
+            Whether to apply max norm.
+        spatial_dims : Sequence[int]
+            The spatial dimensions.
+        coil_dim : int
+            The coil dimension.
+        self_supervised : Union[str, None]
+            The self-supervised method.
+        reference_kspace_normalization : bool
+            Whether to apply reference kspace normalization.
+        self_supervised_masking_type : Union[str, None]
+            The self-supervised masking type.
+        use_seed : bool
+            Whether to use a seed.
         """
         self.coil_combination_method = coil_combination_method
         self.dimensionality = dimensionality
@@ -89,6 +141,18 @@ class MRIDataTransforms:
         self.max_norm = max_norm
         self.spatial_dims = spatial_dims if spatial_dims is not None else [-2, -1]
         self.coil_dim = coil_dim - 1 if self.dimensionality == 2 else coil_dim
+
+        if self_supervised not in (None, "none", "None", "SSDU", "ssdu"):
+            raise ValueError(
+                f"Invalid self-supervised method. Currrent only SSDU is supported, found {self_supervised}."
+            )
+        elif self_supervised is not None and self_supervised.upper() == "SSDU":
+            self.self_supervised = "SSDU"
+        else:
+            self.self_supervised = None  # type: ignore
+
+        self.reference_kspace_normalization = reference_kspace_normalization
+        self.self_supervised_masking_type = self_supervised_masking_type
 
         self.apply_prewhitening = apply_prewhitening
         self.prewhitening = (
@@ -184,6 +248,9 @@ class MRIDataTransforms:
                     normalization=self.fft_normalization,
                     spatial_dims=self.spatial_dims,
                 )
+
+        if self.reference_kspace_normalization:
+            kspace = kspace / torch.max(torch.abs(kspace))
 
         # Apply zero-filling on kspace
         if self.kspace_zero_filling_size is not None and self.kspace_zero_filling_size not in ("", "None"):
@@ -337,7 +404,12 @@ class MRIDataTransforms:
                 )
             )
 
-        if not is_none(mask) and not is_none(self.mask_func):
+        self_supervised_masked = False
+        if not is_none(mask):  # and not is_none(self.mask_func):
+            if self.self_supervised == "SSDU":
+                loss_mask = torch.from_numpy(mask[1]).unsqueeze(0).unsqueeze(-1)
+                mask = mask[0]
+
             for _mask in mask:
                 if list(_mask.shape) == [kspace.shape[-3], kspace.shape[-2]]:
                     mask = torch.from_numpy(_mask).unsqueeze(0).unsqueeze(-1)
@@ -348,14 +420,38 @@ class MRIDataTransforms:
                 mask[:, :, : padding[0]] = 0
                 mask[:, :, padding[1] :] = 0  # padding value inclusive on right of zeros
 
+                if self.self_supervised == "SSDU":
+                    loss_mask[:, :, : padding[0]] = 0
+                    loss_mask[:, :, padding[1] :] = 0  # padding value inclusive on right of zeros
+
+            if isinstance(loss_mask, np.ndarray):
+                loss_mask = torch.from_numpy(loss_mask).unsqueeze(0).unsqueeze(-1)
+
             if isinstance(mask, np.ndarray):
                 mask = torch.from_numpy(mask).unsqueeze(0).unsqueeze(-1)
 
             if self.shift_mask:
                 mask = torch.fft.fftshift(mask, dim=(self.spatial_dims[0] - 1, self.spatial_dims[1] - 1))
+                if self.self_supervised == "SSDU":
+                    loss_mask = torch.fft.fftshift(loss_mask, dim=(self.spatial_dims[0] - 1, self.spatial_dims[1] - 1))
+
+            if self.crop_size is not None and self.crop_size not in ("", "None") and self.crop_before_masking:
+                mask = complex_center_crop(mask, self.crop_size)
+
+            if self.self_supervised == "SSDU":
+                if self.crop_size is not None and self.crop_size not in ("", "None") and self.crop_before_masking:
+                    loss_mask = complex_center_crop(loss_mask, self.crop_size)
+
+                masked_kspace = kspace * mask + 0.0  # the + 0.0 removes the sign of the zeros
+                kspace = kspace * loss_mask + 0.0  # the + 0.0 removes the sign of the zeros
+
+                mask = [mask, loss_mask]
+                self_supervised_masked = True
+            else:
+                masked_kspace = kspace * mask + 0.0  # the + 0.0 removes the sign of the zeros
 
             acc = 1
-            masked_kspace = kspace * mask + 0.0  # the + 0.0 removes the sign of the zeros
+
         elif is_none(self.mask_func):
             masked_kspace = kspace.clone()
             acc = torch.tensor([1])
@@ -578,6 +674,67 @@ class MRIDataTransforms:
 
             # if self.max_norm:
             target = target / torch.max(torch.abs(target))
+
+        if self.self_supervised == "SSDU" and not self_supervised_masked:
+            ssl_masker = SSDUMasker(type=self.self_supervised_masking_type)  # type: ignore
+
+            if isinstance(self.mask_func, list):
+                _masks = []
+                _loss_masks = []
+                masked_kspaces = []
+                ref_kspaces = []
+                for _mask, _masked_kspace in zip(mask, masked_kspace):
+                    input_data = torch.view_as_complex(_masked_kspace).permute(1, 2, 0).numpy()
+                    input_mask = _mask.squeeze().numpy()
+                    if input_mask.ndim == 1:
+                        input_mask = np.repeat(input_mask[None, :], input_data.shape[1], axis=0)
+
+                    if self.shift_mask:
+                        input_mask = np.fft.fftshift(input_mask, axes=(0, 1))
+                        input_data = np.fft.fftshift(input_data, axes=(0, 1))
+
+                    trn_mask, loss_mask, _ = ssl_masker(input_data, input_mask)
+
+                    if self.shift_mask:
+                        trn_mask = np.fft.fftshift(trn_mask, axes=(0, 1))
+                        loss_mask = np.fft.fftshift(loss_mask, axes=(0, 1))
+
+                    trn_mask = torch.from_numpy(trn_mask).unsqueeze(0).unsqueeze(-1)
+                    loss_mask = torch.from_numpy(loss_mask).unsqueeze(0).unsqueeze(-1)
+
+                    masked_data = kspace * trn_mask + 0.0  # the + 0.0 removes the sign of the zeros
+                    loss_masked_data = kspace * loss_mask + 0.0
+
+                    _masks.append(trn_mask)
+                    _loss_masks.append(loss_mask)
+                    masked_kspaces.append(masked_data)
+                    ref_kspaces.append(loss_masked_data)
+
+                mask = [_masks, _loss_masks]
+                masked_kspace = masked_kspaces
+                kspace = ref_kspaces
+            else:
+                input_data = torch.view_as_complex(masked_kspace).permute(1, 2, 0).numpy()
+                input_mask = mask.squeeze().numpy()
+                if input_mask.ndim == 1:
+                    input_mask = np.repeat(input_mask[None, :], input_data.shape[1], axis=0)
+
+                if self.shift_mask:
+                    input_mask = np.fft.fftshift(input_mask, axes=(0, 1))
+                    input_data = np.fft.fftshift(input_data, axes=(0, 1))
+
+                trn_mask, loss_mask, _ = ssl_masker(input_data, input_mask)
+
+                _mask = torch.from_numpy(trn_mask).unsqueeze(0).unsqueeze(-1)
+                _loss_mask = torch.from_numpy(loss_mask).unsqueeze(0).unsqueeze(-1)
+
+                if self.shift_mask:
+                    _mask = torch.fft.fftshift(_mask, dim=(1, 2))
+                    _loss_mask = torch.fft.fftshift(_loss_mask, dim=(1, 2))
+
+                mask = [_mask, _loss_mask]
+                masked_kspace = kspace * _mask + 0.0  # the + 0.0 removes the sign of the zeros
+                kspace = kspace * _loss_mask + 0.0
 
         return kspace, masked_kspace, sensitivity_map, mask, eta, target, fname, slice_idx, acc
 
