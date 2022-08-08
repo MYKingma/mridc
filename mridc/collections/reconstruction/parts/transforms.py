@@ -9,18 +9,15 @@ import torch
 
 from mridc.collections.common.parts.fft import fft2, ifft2
 from mridc.collections.common.parts.utils import (
-    complex_conj,
-    complex_mul,
     is_none,
     reshape_fortran,
     rss,
     sense,
     to_tensor,
 )
-from mridc.collections.reconstruction.data.subsample import MaskFunc
-from mridc.collections.reconstruction.parts.utils import apply_mask, center_crop, complex_center_crop, mask_center
 from mridc.collections.reconstruction.data.ssl_subsample import SSDUMasker
-
+from mridc.collections.reconstruction.data.subsample import MaskFunc
+from mridc.collections.reconstruction.parts.utils import apply_mask, center_crop, complex_center_crop
 
 __all__ = ["MRIDataTransforms"]
 
@@ -451,7 +448,6 @@ class MRIDataTransforms:
                 masked_kspace = kspace * mask + 0.0  # the + 0.0 removes the sign of the zeros
 
             acc = 1
-
         elif is_none(self.mask_func):
             masked_kspace = kspace.clone()
             acc = torch.tensor([1])
@@ -666,14 +662,14 @@ class MRIDataTransforms:
                 imspace = imspace / torch.max(torch.abs(imspace))
                 kspace = torch.view_as_real(torch.fft.fftn(imspace, dim=list(self.spatial_dims), norm=None))
 
-            if sensitivity_map.size != 0:
-                sensitivity_map = sensitivity_map / torch.max(torch.abs(sensitivity_map))
+            if self.max_norm:
+                if sensitivity_map.size != 0:
+                    sensitivity_map = sensitivity_map / torch.max(torch.abs(sensitivity_map))
 
-            if eta.size != 0 and eta.ndim > 2:
-                eta = eta / torch.max(torch.abs(eta))
+                if eta.size != 0 and eta.ndim > 2:
+                    eta = eta / torch.max(torch.abs(eta))
 
-            # if self.max_norm:
-            target = target / torch.max(torch.abs(target))
+                target = target / torch.max(torch.abs(target))
 
         if self.self_supervised == "SSDU" and not self_supervised_masked:
             ssl_masker = SSDUMasker(type=self.self_supervised_masking_type)  # type: ignore

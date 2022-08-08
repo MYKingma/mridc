@@ -1,10 +1,9 @@
 # coding=utf-8
 __author__ = "Dimitrios Karkalousos"
 
-from typing import Optional, Tuple, Union
+from typing import Union
 
 import torch
-from matplotlib import pyplot as plt
 
 from mridc.collections.common.parts.fft import fft2, ifft2
 from mridc.collections.common.parts.utils import is_none

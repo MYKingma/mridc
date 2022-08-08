@@ -5,7 +5,6 @@ from abc import ABC
 from typing import List, Union
 
 import torch
-
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from torch.nn import L1Loss

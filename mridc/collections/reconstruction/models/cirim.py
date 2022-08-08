@@ -12,7 +12,7 @@ from pytorch_lightning import Trainer
 from torch.nn import L1Loss
 
 from mridc.collections.common.losses.ssim import SSIMLoss
-from mridc.collections.common.parts.fft import fft2, ifft2
+from mridc.collections.common.parts.fft import ifft2
 from mridc.collections.common.parts.rnn_utils import rnn_weights_init
 from mridc.collections.common.parts.utils import coil_combination
 from mridc.collections.reconstruction.models.base import BaseMRIReconstructionModel
@@ -45,8 +45,6 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
 
         # Cascades of RIM blocks
         cfg_dict = OmegaConf.to_container(cfg, resolve=True)
-
-        self.ssdu = cfg_dict.get("ssdu")
 
         self.recurrent_filters = cfg_dict.get("recurrent_filters")
 
@@ -204,54 +202,33 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
         """
         target = torch.abs(target / torch.max(torch.abs(target)))
 
-        if self.ssdu:
-            # pred = sensitivity_maps * pred.unsqueeze(self.coil_dim)
-            mask = mask.squeeze(self.coil_dim)
-            pred = torch.abs(pred / torch.max(torch.abs(pred)))
-            pred = fft2(pred, self.fft_centered, self.fft_normalization, self.spatial_dims) / torch.sqrt(
-                torch.tensor(mask.shape[0] * mask.shape[1])
-            )
-            pred = pred * mask
-            pred = torch.view_as_complex(pred)
-            target = fft2(target, self.fft_centered, self.fft_normalization, self.spatial_dims)
-            target = torch.view_as_complex(target)
-            scalar = torch.tensor(0.5)
-            loss = torch.multiply(
-                scalar, torch.linalg.norm(target - pred, dim=(-2, -1)) / torch.linalg.norm(target, dim=(-2, -1))
-            ) + torch.multiply(
-                scalar,
-                torch.linalg.norm(target - pred, ord=1, dim=(-2, -1)) / torch.linalg.norm(target, ord=1, dim=(-2, -1)),
-            )
-            return loss
+        if "ssim" in str(_loss_fn).lower():
+            max_value = np.array(torch.max(torch.abs(target)).item()).astype(np.float32)
+
+            def loss_fn(x, y, m):
+                """Calculate the ssim loss."""
+                y = torch.abs(y / torch.max(torch.abs(y)))
+                return _loss_fn(
+                    x.unsqueeze(dim=self.coil_dim),
+                    y.unsqueeze(dim=self.coil_dim),
+                    data_range=torch.tensor(max_value).unsqueeze(dim=0).to(x.device),
+                )
+
         else:
-            if "ssim" in str(_loss_fn).lower():
-                max_value = np.array(torch.max(torch.abs(target)).item()).astype(np.float32)
 
-                def loss_fn(x, y, m):
-                    """Calculate the ssim loss."""
-                    y = torch.abs(y / torch.max(torch.abs(y)))
-                    return _loss_fn(
-                        x.unsqueeze(dim=self.coil_dim),
-                        y.unsqueeze(dim=self.coil_dim),
-                        data_range=torch.tensor(max_value).unsqueeze(dim=0).to(x.device),
-                    )
+            def loss_fn(x, y, m):
+                """Calculate other loss."""
+                y = torch.abs(y / torch.max(torch.abs(y)))
+                return _loss_fn(x, y)
 
-            else:
-
-                def loss_fn(x, y, m):
-                    """Calculate other loss."""
-                    y = torch.abs(y / torch.max(torch.abs(y)))
-                    return _loss_fn(x, y)
-
-            if self.accumulate_estimates:
-                cascades_loss = []
-                for cascade_pred in pred:
-                    time_steps_loss = [loss_fn(target, time_step_pred, mask) for time_step_pred in cascade_pred]
-                    _loss = [
-                        x * torch.logspace(-1, 0, steps=self.time_steps).to(time_steps_loss[0])
-                        for x in time_steps_loss
-                    ]
-                    cascades_loss.append(sum(sum(_loss) / self.time_steps))
-                yield sum(list(cascades_loss)) / len(self.cirim)
-            else:
-                return loss_fn(target, pred, mask)
+        if self.accumulate_estimates:
+            cascades_loss = []
+            for cascade_pred in pred:
+                time_steps_loss = [loss_fn(target, time_step_pred, mask) for time_step_pred in cascade_pred]
+                _loss = [
+                    x * torch.logspace(-1, 0, steps=self.time_steps).to(time_steps_loss[0]) for x in time_steps_loss
+                ]
+                cascades_loss.append(sum(sum(_loss) / self.time_steps))
+            yield sum(list(cascades_loss)) / len(self.cirim)
+        else:
+            return loss_fn(target, pred, mask)

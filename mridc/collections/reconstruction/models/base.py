@@ -11,7 +11,6 @@ import h5py
 import numpy as np
 import torch
 import wandb
-
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from torch import nn
@@ -21,8 +20,6 @@ from torchmetrics.metric import Metric
 from mridc.collections.common.losses.kspace_losses import SSDUKSPACELoss
 from mridc.collections.common.parts.fft import fft2, ifft2
 from mridc.collections.common.parts.utils import (
-    complex_conj,
-    complex_mul,
     is_none,
     rss_complex,
 )
@@ -261,14 +258,14 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
         """
         kspace, y, sensitivity_maps, mask, init_pred, target, _, _, acc = batch
 
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             loss_mask = mask[1]  # type: ignore
             mask = mask[0]  # type: ignore
             init_pred = None  # type: ignore
 
         y, mask, init_pred, r = self.process_inputs(y, mask, init_pred)
 
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             kspace = kspace[r]  # type: ignore
             loss_mask = loss_mask[r]  # type: ignore
 
@@ -277,7 +274,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
 
         preds = self.forward(y, sensitivity_maps, mask, init_pred, target)
 
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             if self.accumulate_estimates:
                 try:
                     preds = next(preds)
@@ -363,14 +360,14 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
             dict, shape [1]
         """
         kspace, y, sensitivity_maps, mask, init_pred, target, fname, slice_num, _ = batch
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             loss_mask = mask[1]  # type: ignore
             mask = mask[0]  # type: ignore
             init_pred = None  # type: ignore
 
         y, mask, init_pred, r = self.process_inputs(y, mask, init_pred)
 
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             kspace = kspace[r]  # type: ignore
             loss_mask = loss_mask[r]  # type: ignore
 
@@ -379,7 +376,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
 
         preds = self.forward(y, sensitivity_maps, mask, init_pred, target)
 
-        if self.self_supervised.upper() == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             if self.accumulate_estimates:
                 try:
                     preds = next(preds)
@@ -493,12 +490,12 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
         """
         kspace, y, sensitivity_maps, mask, init_pred, target, fname, slice_num, _ = batch
 
-        if self.self_supervised == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             mask = mask[0]  # type: ignore
 
         y, mask, init_pred, r = self.process_inputs(y, mask, init_pred)
 
-        if self.self_supervised == "SSDU":
+        if self.self_supervised is not None and self.self_supervised.upper() == "SSDU":
             kspace = kspace[r]  # type: ignore
 
         if self.use_sens_net:
@@ -519,6 +516,8 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
         # Time-steps
         if isinstance(preds, list):
             preds = preds[-1]
+
+        preds = preds / torch.abs(preds).max()  # type: ignore
 
         slice_num = int(slice_num)
         name = str(fname[0])  # type: ignore

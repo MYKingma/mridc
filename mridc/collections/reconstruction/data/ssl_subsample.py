@@ -4,11 +4,10 @@ __author__ = "Dimitrios Karkalousos"
 # Taken and adapted from https://github.com/byaman14/SSDU/blob/main/masks/ssdu_masks.py
 
 import numpy as np
-from numba import float32, int32, jit, types
-from numba.core.extending import overload
+from numba import float32, int32, types
 
 
-@jit(nopython=True)
+# @jit(nopython=True)
 def index_flatten2nd(ind, shape):
     """
         Parameters
@@ -27,9 +26,35 @@ def index_flatten2nd(ind, shape):
     return [list(ind_nd_ii) for ind_nd_ii in ind_nd]
 
 
-@jit(nopython=True, fastmath=True)
-@overload(np.linalg.norm)
-@overload(np.argsort)
+# @jit(nopython=True, fastmath=True)
+# @overload(np.linalg.norm)
+# @overload(np.argsort)
+# def find_center_ind(kspace, axes=(1, 2, 3)):
+#     """
+#     Finds the center index of the kspace.
+#
+#     Parameters
+#     ----------
+#     kspace : 3D tensor containing kspace data.
+#     axes : tuple of ints containing the axes to compute the center.
+#
+#     Returns
+#     -------
+#     center_ind : 1D vector containing the indices of the center.
+#     """
+#     center_locs = []
+#     for axis in axes:
+#         for i in range(kspace.shape[axis]):
+#             if axis == 0:
+#                 x = np.linalg.norm(kspace[i, :, :])
+#             elif axis == 1:
+#                 x = np.linalg.norm(kspace[:, i, :])
+#             elif axis == 2:
+#                 x = np.linalg.norm(kspace[:, :, i])
+#             center_locs.append(x)
+#     return np.argsort(np.asarray(center_locs))[-1:]
+
+
 def find_center_ind(kspace, axes=(1, 2, 3)):
     """
     Finds the center index of the kspace.
@@ -43,17 +68,11 @@ def find_center_ind(kspace, axes=(1, 2, 3)):
     -------
     center_ind : 1D vector containing the indices of the center.
     """
-    center_locs = []
+    x = kspace
     for axis in axes:
-        for i in range(kspace.shape[axis]):
-            if axis == 0:
-                x = np.linalg.norm(kspace[i, :, :])
-            elif axis == 1:
-                x = np.linalg.norm(kspace[:, i, :])
-            elif axis == 2:
-                x = np.linalg.norm(kspace[:, :, i])
-            center_locs.append(x)
-    return np.argsort(np.asarray(center_locs))[-1:]
+        x = np.linalg.norm(x, axis=axis, keepdims=True)
+    center_locs = x.squeeze()
+    return np.argsort(center_locs)[-1:]
 
 
 class SSDUMasker:
@@ -72,11 +91,11 @@ class SSDUMasker:
         self._small_acs_block = small_acs_block
 
     @staticmethod
-    @jit(nopython=True)
+    # @jit(nopython=True)
     def Gaussian_selection(input_data, input_mask, _rho, _small_acs_block, std_scale=4):
         nrow, ncol = input_data.shape[0], input_data.shape[1]
-        center_kx = find_center_ind(input_data, axes=(1, 2))[0]
-        center_ky = find_center_ind(input_data, axes=(0, 2))[0]
+        center_kx = int(find_center_ind(input_data, axes=(1, 2)))
+        center_ky = int(find_center_ind(input_data, axes=(0, 2)))
 
         temp_mask = np.copy(input_mask)
         temp_mask[
@@ -86,20 +105,21 @@ class SSDUMasker:
 
         loss_mask = np.zeros_like(input_mask)
 
-        idx = np.int(np.ceil(np.sum(input_mask[:]) * _rho))
-        for count in range(idx):
+        count = 0
+        while count <= np.int(np.ceil(np.sum(input_mask[:]) * _rho)):
             indx = np.int(np.round(np.random.normal(loc=center_kx, scale=(nrow - 1) / std_scale)))
             indy = np.int(np.round(np.random.normal(loc=center_ky, scale=(ncol - 1) / std_scale)))
 
             if 0 <= indx < nrow and 0 <= indy < ncol and temp_mask[indx, indy] == 1 and loss_mask[indx, indy] != 1:
                 loss_mask[indx, indy] = 1
+                count = count + 1
 
         trn_mask = input_mask - loss_mask
 
         return trn_mask, loss_mask, [center_kx, center_ky]
 
     @staticmethod
-    @jit(nopython=True)
+    # @jit(nopython=True)
     def uniform_selection(input_data, input_mask, _rho, _small_acs_block):
         nrow, ncol = input_data.shape[0], input_data.shape[1]
 
