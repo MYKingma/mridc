@@ -120,8 +120,8 @@ def create_rand_partition(im_length: int, num_segments: int):
     :param num_segments: num segs to partition into
     :return: partition locations (list of indices)
     """
-    # rand_segment_locs = sorted(np.random.randint(im_length, size=num_segments + 1).astype(list))
-    rand_segment_locs = sorted(list(torch.randint(im_length, size=(num_segments + 1,))))
+    # rand_segment_locs = sorted(np.random.randint(im_length, size=num_segments).astype(list))
+    rand_segment_locs = sorted(list(torch.randint(im_length, size=(num_segments,))))
     rand_segment_locs[0] = 0
     rand_segment_locs[-1] = None
     return rand_segment_locs
@@ -181,11 +181,14 @@ def translate_kspace(freq_domain: torch.tensor, translations: torch.tensor) -> t
     torch.tensor
         The translated k-space array.
     """
-    lin_spaces = [torch.linspace(-0.5, 0.5, x) for x in freq_domain.shape]
+    lin_spaces = [torch.linspace(-0.5, 0.5, x) for x in freq_domain.shape[:-1]]
     meshgrids = torch.meshgrid(*lin_spaces, indexing="ij")
     grid_coords = torch.stack([mg.flatten() for mg in meshgrids], 0)
     phase_shift = torch.multiply(grid_coords, translations).sum(axis=0)  # phase shift is added
     exp_phase_shift = torch.exp(-2j * math.pi * phase_shift).to(freq_domain.device)
+    motion_kspace = torch.view_as_real(
+        torch.multiply(exp_phase_shift, torch.view_as_complex(freq_domain).flatten()).reshape(freq_domain.shape[:-1])
+    )
 
     # import matplotlib.pyplot as plt
     # import numpy as np
@@ -225,7 +228,7 @@ def translate_kspace(freq_domain: torch.tensor, translations: torch.tensor) -> t
     # ax.title.set_text('Translated')
     # plt.show()
 
-    return exp_phase_shift
+    return motion_kspace
 
 
 class MotionSimulation:
@@ -242,6 +245,8 @@ class MotionSimulation:
         num_segments: int = 8,
         random_num_segments: bool = False,
         non_uniform: bool = False,
+        translations: torch.Tensor = None,
+        rotations: torch.Tensor = None
     ):
         """
         Initialize the motion simulation.
@@ -308,21 +313,15 @@ class MotionSimulation:
         pe_dims.pop(self._spatial_dims)
         self.phase_encoding_dims = pe_dims
         shape = list(shape)
+        if shape[-1] == 2:
+            shape = shape[:-1]
         self.shape = shape.copy()
         shape.pop(self._spatial_dims)
         self.phase_encoding_shape = torch.tensor(shape)
         self.num_phase_encoding_steps = self.phase_encoding_shape[0] * self.phase_encoding_shape[1]
         self._spatial_dims = len(self.shape) - 1 if self._spatial_dims == -1 else self._spatial_dims
 
-    def _simulate_random_trajectory(self):
-        """
-        Simulate a random trajectory.
-
-        Returns
-        -------
-        torch.tensor
-            The random trajectory.
-        """
+    def _generate_random_segments(self):
         pct_corrupt = torch.distributions.Uniform(*[x / 100 for x in self.motion_percentage]).sample((1, 1))
 
         corrupt_matrix_shape = torch.tensor([int(x * math.sqrt(pct_corrupt)) for x in self.phase_encoding_shape])
@@ -376,21 +375,40 @@ class MotionSimulation:
             == 0
         )
 
-        seg_array = seg_array * mask_not_including_center
+        self.seg_array = seg_array * mask_not_including_center
+        self.num_segments = num_segments
 
-        # generate random translations and rotations
-        rand_translations = torch.distributions.normal.Normal(loc=0, scale=self.translation).sample(
-            (num_segments + 1, 3)
-        )
-        rand_rotations = torch.distributions.normal.Normal(loc=0, scale=self.angle).sample((num_segments + 1, 3))
+    def _get_motion_trajectory(self, translation_rotation=None, random_segments = True):
+        """
+        Obtain a motion trajectory.
+
+        Returns
+        -------
+        torch.tensor
+            The random trajectory.
+        """
+
+        if random_segments:
+            self._generate_random_segments()
+        else:
+            raise NotImplementedError("Custom segments (masks) not supported")
+        
+        if not translation_rotation:
+            translations, rotations = self._simulate_random_trajectory()
+        else:
+            (translations, rotations) = translation_rotation
+            if translations.shape[0] != self.num_segments:
+                translations = torch.cat((torch.tensor([[0, 0, 0]]), translations), dim=0)
+            if rotations.shape[0] != self.num_segments:
+                rotations = torch.cat((torch.tensor([[0, 0, 0]]), rotations), dim=0)
 
         # if segment==0, then no motion
-        rand_translations[0, :] = 0
-        rand_rotations[0, :] = 0
+        translations[0, :] = 0
+        rotations[0, :] = 0
 
         # lookup values for each segment
-        translations_pe = [rand_translations[:, i][seg_array.long()] for i in range(3)]
-        rotations_pe = [rand_rotations[:, i][seg_array.long()] for i in range(3)]
+        translations_pe = [translations[:, i][self.seg_array.long()] for i in range(3)]
+        rotations_pe = [rotations[:, i][self.seg_array.long()] for i in range(3)]
 
         # reshape and convert to radians
         translations = torch.stack(
@@ -402,10 +420,27 @@ class MotionSimulation:
 
         rotations = rotations * (math.pi / 180.0)  # convert to radians
 
-        translations = translations.reshape(3, -1)
-        rotations = rotations.reshape(3, -1).reshape(3, -1)
+        self.translations = translations.reshape(3, -1)
+        self.rotations = rotations.reshape(3, -1).reshape(3, -1)
 
-        return translations, rotations
+
+    def _simulate_random_trajectory(self):
+        """
+        Simulate a random trajectory.
+
+        Returns
+        -------
+        torch.tensor
+            The random trajectory.
+        """
+
+        # generate random translations and rotations
+        rand_translations = torch.distributions.normal.Normal(loc=0, scale=self.translation).sample(
+            (self.num_segments, 3)
+        )
+        rand_rotations = torch.distributions.normal.Normal(loc=0, scale=self.angle).sample((self.num_segments, 3))
+
+        return rand_translations, rand_rotations
 
     def forward(self, kspace, translations_rotations=None) -> torch.Tensor:
         """
@@ -423,20 +458,13 @@ class MotionSimulation:
         torch.Tensor
             The kspace with the motion applied.
         """
-        if kspace.shape[-1] == 2:
-            kspace = torch.view_as_complex(kspace)
 
         self._calc_dimensions(kspace.shape)
-        translations, rotations = (
-            self._simulate_random_trajectory() if translations_rotations is None else translations_rotations
-        )
+        self._get_motion_trajectory(translations_rotations)
 
-        self.params["translations"] = translations
-        self.params["rotations"] = rotations
+        motion_kspace = translate_kspace(freq_domain=kspace, translations=self.translations)
 
-        exp_phase_shift = translate_kspace(freq_domain=kspace, translations=rotations)
-
-        return exp_phase_shift
+        return motion_kspace
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

@@ -379,7 +379,7 @@ class MRIDataTransforms:
 
         # Simulate motion if random_motion is enabled.
         if self.random_motion:
-            motion_state_first = MotionSimulation(
+            motion_layer = MotionSimulation(
                 type=self.random_motion_type,
                 angle=self.random_motion_angle,
                 translation=self.random_motion_translation,
@@ -391,101 +391,103 @@ class MRIDataTransforms:
                 non_uniform=self.random_motion_non_uniform,
             )
 
-            motion_state_second = MotionSimulation(
-                type=self.random_motion_type,
-                angle=np.round(self.random_motion_angle * self.random_motion_states_discrepancy_factor),
-                translation=np.round(self.random_motion_translation * self.random_motion_states_discrepancy_factor),
-                center_percentage=self.random_motion_center_percentage,
-                motion_percentage=self.random_motion_motion_percentage,
-                spatial_dims=self.spatial_dims,
-                num_segments=self.random_motion_num_segments,
-                random_num_segments=self.random_motion_random_num_segments,
-                non_uniform=self.random_motion_non_uniform,
-            )
+            kspace = motion_layer.forward(kspace)
 
-            if kspace.dim() == 4:
-                phase_shift_first = motion_state_first.forward(kspace)
-                kspace_r = torch.view_as_real(
-                    torch.multiply(phase_shift_first, torch.view_as_complex(kspace).flatten()).reshape(
-                        kspace.shape[:-1]
-                    )
-                )
-                phase_shift_second = motion_state_second.forward(kspace)
-                kspace_m = torch.view_as_real(
-                    torch.multiply(phase_shift_second, torch.view_as_complex(kspace).flatten()).reshape(
-                        kspace.shape[:-1]
-                    )
-                )
-                deformed_imspace = lambda x: generate_complex_data_with_motion(
-                    x,
-                    translation=[
-                        2 * self.simulate_motion_translation[0] * np.random.rand(1)
-                        - self.simulate_motion_translation[1],
-                        2 * self.simulate_motion_translation[0] * np.random.rand(1)
-                        - self.simulate_motion_translation[1],
-                    ],
-                    rotation=2 * self.simulate_motion_rotation[0] * np.random.rand(1)
-                    - self.simulate_motion_rotation[1],
-                    scale=2 * self.simulate_motion_scale * np.random.rand(1) - self.simulate_motion_scale + 1,
-                    p=self.simulate_motion_p,
-                    theta=self.simulate_motion_theta,
-                    sigma=self.simulate_motion_sigma,
-                )
-                kspace_m = fft2(
-                    deformed_imspace(ifft2(kspace_m, self.fft_centered, self.fft_normalization, self.spatial_dims)),
-                    self.fft_centered,
-                    self.fft_normalization,
-                    self.spatial_dims,
-                )
-                kspace = torch.stack([kspace_r, kspace_m], dim=0)
-            elif kspace.dim() == 5:
-                phase_shift_first = motion_state_first.forward(kspace[0])
-                kspaces = []
-                for slice in range(kspace.shape[0]):
-                    kspaces.append(
-                        torch.view_as_real(
-                            torch.multiply(phase_shift_first, torch.view_as_complex(kspace[slice]).flatten()).reshape(
-                                kspace[slice].shape[:-1]
-                            )
-                        )
-                    )
-                kspace_r = torch.stack(kspaces, dim=0)
-                deformed_imspace = lambda x: generate_complex_data_with_motion(
-                    x,
-                    translation=[
-                        2 * self.simulate_motion_translation[0] * np.random.rand(1)
-                        - self.simulate_motion_translation[1],
-                        2 * self.simulate_motion_translation[0] * np.random.rand(1)
-                        - self.simulate_motion_translation[1],
-                    ],
-                    rotation=2 * self.simulate_motion_rotation[0] * np.random.rand(1)
-                    - self.simulate_motion_rotation[1],
-                    scale=2 * self.simulate_motion_scale * np.random.rand(1) - self.simulate_motion_scale + 1,
-                    p=self.simulate_motion_p,
-                    theta=self.simulate_motion_theta,
-                    sigma=self.simulate_motion_sigma,
-                )
-                phase_shift_second = motion_state_second.forward(kspace[0])
-                kspaces = []
-                for slice in range(kspace.shape[0]):
-                    _kspace_m = torch.view_as_real(
-                        torch.multiply(phase_shift_second, torch.view_as_complex(kspace[slice]).flatten()).reshape(
-                            kspace[slice].shape[:-1]
-                        )
-                    )
-                    _imspace = ifft2(_kspace_m, self.fft_centered, self.fft_normalization, self.spatial_dims)
-                    _kspace_m = fft2(
-                        deformed_imspace(_imspace),
-                        self.fft_centered,
-                        self.fft_normalization,
-                        self.spatial_dims,
-                    )
-                    kspaces.append(_kspace_m)
-                kspace_m = torch.stack(kspaces, dim=0)
-                kspace = torch.stack([kspace_r, kspace_m], dim=0)
-            phase_shift = torch.stack([phase_shift_first, phase_shift_second], dim=0)
-        else:
-            phase_shift = torch.ones_like(kspace)
+            # motion_state_second = MotionSimulation(
+            #     type=self.random_motion_type,
+            #     angle=np.round(self.random_motion_angle * self.random_motion_states_discrepancy_factor),
+            #     translation=np.round(self.random_motion_translation * self.random_motion_states_discrepancy_factor),
+            #     center_percentage=self.random_motion_center_percentage,
+            #     motion_percentage=self.random_motion_motion_percentage,
+            #     spatial_dims=self.spatial_dims,
+            #     num_segments=self.random_motion_num_segments,
+            #     random_num_segments=self.random_motion_random_num_segments,
+            #     non_uniform=self.random_motion_non_uniform,
+            # )
+
+            # if kspace.dim() == 4:
+            #     phase_shift_first = motion_state_first.forward(kspace)
+            #     kspace_r = torch.view_as_real(
+            #         torch.multiply(phase_shift_first, torch.view_as_complex(kspace).flatten()).reshape(
+            #             kspace.shape[:-1]
+            #         )
+            #     )
+            #     phase_shift_second = motion_state_second.forward(kspace)
+            #     kspace_m = torch.view_as_real(
+            #         torch.multiply(phase_shift_second, torch.view_as_complex(kspace).flatten()).reshape(
+            #             kspace.shape[:-1]
+            #         )
+            #     )
+            #     deformed_imspace = lambda x: generate_complex_data_with_motion(
+            #         x,
+            #         translation=[
+            #             2 * self.simulate_motion_translation[0] * np.random.rand(1)
+            #             - self.simulate_motion_translation[1],
+            #             2 * self.simulate_motion_translation[0] * np.random.rand(1)
+            #             - self.simulate_motion_translation[1],
+            #         ],
+            #         rotation=2 * self.simulate_motion_rotation[0] * np.random.rand(1)
+            #         - self.simulate_motion_rotation[1],
+            #         scale=2 * self.simulate_motion_scale * np.random.rand(1) - self.simulate_motion_scale + 1,
+            #         p=self.simulate_motion_p,
+            #         theta=self.simulate_motion_theta,
+            #         sigma=self.simulate_motion_sigma,
+            #     )
+            #     kspace_m = fft2(
+            #         deformed_imspace(ifft2(kspace_m, self.fft_centered, self.fft_normalization, self.spatial_dims)),
+            #         self.fft_centered,
+            #         self.fft_normalization,
+            #         self.spatial_dims,
+            #     )
+            #     kspace = torch.stack([kspace_r, kspace_m], dim=0)
+        #     elif kspace.dim() == 5:
+        #         phase_shift_first = motion_state_first.forward(kspace[0])
+        #         kspaces = []
+        #         for slice in range(kspace.shape[0]):
+        #             kspaces.append(
+        #                 torch.view_as_real(
+        #                     torch.multiply(phase_shift_first, torch.view_as_complex(kspace[slice]).flatten()).reshape(
+        #                         kspace[slice].shape[:-1]
+        #                     )
+        #                 )
+        #             )
+        #         kspace_r = torch.stack(kspaces, dim=0)
+        #         deformed_imspace = lambda x: generate_complex_data_with_motion(
+        #             x,
+        #             translation=[
+        #                 2 * self.simulate_motion_translation[0] * np.random.rand(1)
+        #                 - self.simulate_motion_translation[1],
+        #                 2 * self.simulate_motion_translation[0] * np.random.rand(1)
+        #                 - self.simulate_motion_translation[1],
+        #             ],
+        #             rotation=2 * self.simulate_motion_rotation[0] * np.random.rand(1)
+        #             - self.simulate_motion_rotation[1],
+        #             scale=2 * self.simulate_motion_scale * np.random.rand(1) - self.simulate_motion_scale + 1,
+        #             p=self.simulate_motion_p,
+        #             theta=self.simulate_motion_theta,
+        #             sigma=self.simulate_motion_sigma,
+        #         )
+        #         phase_shift_second = motion_state_second.forward(kspace[0])
+        #         kspaces = []
+        #         for slice in range(kspace.shape[0]):
+        #             _kspace_m = torch.view_as_real(
+        #                 torch.multiply(phase_shift_second, torch.view_as_complex(kspace[slice]).flatten()).reshape(
+        #                     kspace[slice].shape[:-1]
+        #                 )
+        #             )
+        #             _imspace = ifft2(_kspace_m, self.fft_centered, self.fft_normalization, self.spatial_dims)
+        #             _kspace_m = fft2(
+        #                 deformed_imspace(_imspace),
+        #                 self.fft_centered,
+        #                 self.fft_normalization,
+        #                 self.spatial_dims,
+        #             )
+        #             kspaces.append(_kspace_m)
+        #         kspace_m = torch.stack(kspaces, dim=0)
+        #         kspace = torch.stack([kspace_r, kspace_m], dim=0)
+        #     phase_shift = torch.stack([phase_shift_first, phase_shift_second], dim=0)
+        # else:
+        #     phase_shift = torch.ones_like(kspace)
 
         # Undersample kspace if undersampling is enabled.
         if not is_none(mask) and not is_none(self.mask_func):
@@ -819,22 +821,6 @@ class MRIDataTransforms:
 
             # if self.max_norm:
             target = target / torch.max(torch.abs(target))
-
-        # import matplotlib.pyplot as plt
-        # pred = masked_kspace[0]
-        # pred1 = pred[0, :, :, :, :]
-        # pred2 = pred[1, :, :, :, :]
-        # eta1 = torch.sum(complex_mul(ifft2(pred1, centered=self.fft_centered, normalization=self.fft_normalization, spatial_dims=self.spatial_dims), complex_conj(sensitivity_map)), self.coil_dim)
-        # eta2 = torch.sum(complex_mul(ifft2(pred2, centered=self.fft_centered, normalization=self.fft_normalization, spatial_dims=self.spatial_dims), complex_conj(sensitivity_map)), self.coil_dim)
-        # eta1 = torch.abs(torch.view_as_complex(eta1)).detach().numpy().squeeze()
-        # eta2 = torch.abs(torch.view_as_complex(eta2)).detach().numpy().squeeze()
-        # plt.subplot(1, 3, 1)
-        # plt.imshow(eta1, cmap='gray')
-        # plt.subplot(1, 3, 2)
-        # plt.imshow(eta2, cmap='gray')
-        # plt.subplot(1, 3, 3)
-        # plt.imshow(eta1-eta2, cmap='gray')
-        # plt.show()
 
         return kspace, masked_kspace, sensitivity_map, mask, eta, target, phase_shift, fname, slice_idx, acc
 
