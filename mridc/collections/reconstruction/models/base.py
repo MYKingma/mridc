@@ -294,7 +294,7 @@ class BaseMRIReconstructionModel(modelPT.ModelPT, ABC):
             dict, shape [1]
         """
         kspace, y, sensitivity_maps, mask, init_pred, target, fname, slice_num, _ = batch
-
+        print("init_pred", init_pred[0].shape)
         y, mask, init_pred, r = self.process_inputs(y, mask, init_pred)
 
         if self.use_sens_net:
@@ -693,15 +693,6 @@ class BaseMRIReconstructionModel(modelPT.ModelPT, ABC):
                 spatial_dims=cfg.get("spatial_dims"),
                 coil_dim=cfg.get("coil_dim"),
                 use_seed=cfg.get("use_seed"),
-                random_motion=cfg.get("random_motion"),
-                random_motion_type=cfg.get("random_motion_type"),
-                random_motion_angle=cfg.get("random_motion_angle"),
-                random_motion_translation=cfg.get("random_motion_translation"),
-                random_motion_center_percentage=cfg.get("random_motion_center_percentage"),
-                random_motion_motion_percentage=cfg.get("random_motion_motion_percentage"),
-                random_motion_num_segments=cfg.get("random_motion_num_segments"),
-                random_motion_random_num_segments=cfg.get("random_motion_random_num_segments"),
-                random_motion_non_uniform=cfg.get("random_motion_non_uniform"),
             ),
             sample_rate=cfg.get("sample_rate"),
             consecutive_slices=cfg.get("consecutive_slices"),

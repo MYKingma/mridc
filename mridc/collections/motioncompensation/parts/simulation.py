@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import torch
 
-from mridc.collections.common.parts.utils import reshape_fortran
+from mridc.collections.common.parts import utils
 
 
 def get_center_rect(image: torch.tensor, center_percentage: float = 0.02, dim: int = 0) -> torch.tensor:
@@ -357,7 +357,7 @@ class MotionSimulation:
         reshape_order = random.choice(["F", "C"])
 
         if reshape_order == "F":
-            seg_array = reshape_fortran(
+            seg_array = utils.reshape_fortran(
                 seg_vector, (self.phase_encoding_shape[0].item(), self.phase_encoding_shape[1].item())
             )
         else:

@@ -10,6 +10,7 @@ import torch
 import mridc.collections.common.parts.fft as fft
 import mridc.collections.common.parts.utils as utils
 import mridc.collections.reconstruction.data.subsample as subsample
+from mridc.collections.motioncompensation.parts.simulation import MotionSimulation
 
 __all__ = ["MRIDataTransforms"]
 
@@ -45,6 +46,15 @@ class MRIDataTransforms:
         spatial_dims: Sequence[int] = None,
         coil_dim: int = 0,
         use_seed: bool = True,
+        random_motion: bool = False,
+        random_motion_type: str = "gaussian",
+        random_motion_angle: int = 10,
+        random_motion_translation: int = 10,
+        random_motion_center_percentage: float = 0.02,
+        random_motion_motion_percentage: list = [20, 20],
+        random_motion_num_segments: int = 8,
+        random_motion_random_num_segments: bool = True,
+        random_motion_non_uniform: bool = False,
     ):
         """
         Initialize the data transform.
@@ -149,6 +159,17 @@ class MRIDataTransforms:
             if apply_gcc
             else None
         )
+
+        # Motion compensation TODO: add to parameters
+        self.random_motion = random_motion
+        self.random_motion_type = random_motion_type
+        self.random_motion_angle = random_motion_angle
+        self.random_motion_translation = random_motion_translation
+        self.random_motion_center_percentage = random_motion_center_percentage
+        self.random_motion_motion_percentage = random_motion_motion_percentage
+        self.random_motion_num_segments = random_motion_num_segments
+        self.random_motion_random_num_segments = random_motion_random_num_segments
+        self.random_motion_non_uniform = random_motion_non_uniform
 
         self.use_seed = use_seed
 
@@ -368,6 +389,21 @@ class MRIDataTransforms:
                     spatial_dims=self.spatial_dims,
                 )
             )
+
+        # Motion simulation
+        if self.random_motion:
+            motion_layer = MotionSimulation(
+                type=self.random_motion_type,
+                angle=self.random_motion_angle,
+                translation=self.random_motion_translation,
+                center_percentage=self.random_motion_center_percentage,
+                motion_percentage=self.random_motion_motion_percentage,
+                spatial_dims=self.spatial_dims,
+                num_segments=self.random_motion_num_segments,
+                random_num_segments=self.random_motion_random_num_segments,
+                non_uniform=self.random_motion_non_uniform,
+            )
+            kspace = motion_layer.forward(kspace)
 
         if not utils.is_none(mask):
             for _mask in mask:

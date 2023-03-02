@@ -9,6 +9,7 @@ from mridc.collections.quantitative.models.qcirim import qCIRIM
 from mridc.collections.quantitative.models.qvn import qVarNet
 from mridc.collections.reconstruction.models.ccnn import CascadeNet
 from mridc.collections.reconstruction.models.cirim import CIRIM
+from mridc.collections.motioncompensation.models.cirim import MoCoCIRIM
 from mridc.collections.reconstruction.models.crnn import CRNNet
 from mridc.collections.reconstruction.models.dunet import DUNet
 from mridc.collections.reconstruction.models.jointicnet import JointICNet
@@ -83,6 +84,8 @@ def main(cfg: DictConfig) -> None:
         model = LPDNet(cfg.model, trainer=trainer)
     elif model_name == "MULTIDOMAINNET":
         model = MultiDomainNet(cfg.model, trainer=trainer)
+    elif model_name == "MOCOCIRIM":
+        model = MoCoCIRIM(cfg.model, trainer=trainer)
     elif model_name == "PICS":
         model = PICS(cfg.model, trainer=trainer)
     elif model_name == "QCIRIM":
