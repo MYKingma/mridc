@@ -35,6 +35,7 @@ from mridc.collections.segmentation.models.unet import SegmentationUNet
 from mridc.collections.segmentation.models.unet3d import Segmentation3DUNet
 from mridc.collections.segmentation.models.unetr import SegmentationUNetR
 from mridc.collections.segmentation.models.vnet import SegmentationVNet
+from mridc.collections.motioncorrection.models.cirim import MoCoCIRIM
 from mridc.core.conf.hydra_runner import hydra_runner
 from mridc.utils import logging
 from mridc.utils.exp_manager import exp_manager
@@ -117,6 +118,8 @@ def main(cfg: DictConfig) -> None:
         model = XPDNet(cfg.model, trainer=trainer)
     elif model_name == "ZF":
         model = ZF(cfg.model, trainer=trainer)
+    elif model_name == "MOCOCIRIM":
+        model = MoCoCIRIM(cfg.model, trainer=trainer)
     else:
         raise NotImplementedError(
             f"{model_name} is not implemented in MRIDC. You can use one of the following methods: "
