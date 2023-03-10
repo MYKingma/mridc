@@ -616,6 +616,32 @@ class MRIDataTransforms:
 
                 target = target / torch.max(torch.abs(target))
 
+            if sensitivity_map is not None and sensitivity_map.size != 0:
+               if isinstance(masked_kspace, list):
+                    eta = [utils.coil_combination(
+                        fft.ifft2(
+                           x,
+                           centered=self.fft_centered,
+                           normalization=self.fft_normalization,
+                           spatial_dims=self.spatial_dims,
+                       ),
+                       sensitivity_map,
+                       method=self.coil_combination_method,
+                       dim=self.coil_dim,
+                    ) for x in masked_kspace]
+               else:
+                    eta = utils.coil_combination(
+                        fft.ifft2(
+                           masked_kspace,
+                           centered=self.fft_centered,
+                           normalization=self.fft_normalization,
+                           spatial_dims=self.spatial_dims,
+                       ),
+                       sensitivity_map,
+                       method=self.coil_combination_method,
+                       dim=self.coil_dim,
+                    )
+
         return kspace, masked_kspace, sensitivity_map, mask, eta, target, fname, slice_idx, acc
 
 
