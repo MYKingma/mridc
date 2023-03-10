@@ -656,7 +656,7 @@ class BaseMRIMoCoReconstructionModel(modelPT.ModelPT, ABC):
             sense_root=cfg.get("sense_path"),
             mask_root=cfg.get("mask_path"),
             challenge=cfg.get("challenge"),
-            transform=transforms.MRIDataTransforms(
+            transform=transforms.MRIMoCoDataTransforms(
                 coil_combination_method=cfg.get("coil_combination_method"),
                 dimensionality=cfg.get("dimensionality"),
                 mask_func=mask_func,
