@@ -525,7 +525,6 @@ class MRIDataTransforms:
 
         # Normalize by the max value.
         if self.normalize_inputs:
-            print("Here")
             if isinstance(self.mask_func, list):
                 if self.fft_normalization in ("backward", "ortho", "forward"):
                     imspace = fft.ifft2(
