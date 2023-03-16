@@ -64,10 +64,11 @@ class ZF(base_models.BaseMRIReconstructionModel, ABC):
         y: torch.Tensor,
         sensitivity_maps: torch.Tensor,
         mask: torch.Tensor,
-        target: torch.Tensor = None,
-    ) -> Union[list, Any]:
+        init_pred: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
         """
-        Forward pass of the zero-filled method.
+        Forward pass of the network.
 
         Parameters
         ----------
@@ -84,8 +85,9 @@ class ZF(base_models.BaseMRIReconstructionModel, ABC):
 
         Returns
         -------
-        pred: torch.Tensor, shape [batch_size, n_x, n_y, 2]
-            Predicted data.
+        pred: list of torch.Tensor, shape [batch_size, n_x, n_y, 2], or  torch.Tensor, shape [batch_size, n_x, n_y, 2]
+             If self.accumulate_loss is True, returns a list of all intermediate estimates.
+             If False, returns the final estimate.
         """
         pred = utils.coil_combination(
             fft.ifft2(
