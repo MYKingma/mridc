@@ -190,44 +190,6 @@ def translate_kspace(freq_domain: torch.tensor, translations: torch.tensor) -> t
         torch.multiply(exp_phase_shift, torch.view_as_complex(freq_domain).flatten()).reshape(freq_domain.shape[:-1])
     )
 
-    # import matplotlib.pyplot as plt
-    # import numpy as np
-    #
-    # _meshgrids = [torch.sum(x, 0).numpy() for x in meshgrids]
-    # _translated_meshgrids = [x*t for x, t in zip(_meshgrids, torch.sum(translations, 0).cpu().numpy())]
-
-    # fig = plt.figure()
-    # ax = fig.add_subplot(1, 2, 1, projection='3d')
-    # ax.plot_surface(
-    #     *_meshgrids,
-    #     rstride=1,
-    #     cstride=1,
-    #     cmap='viridis',
-    #     edgecolor='none',
-    # )
-    # # ax.set_yticks(y_tick * np.pi)
-    # # ax.set_yticklabels(y_label, fontsize=8)
-    #
-    # ax.title.set_text('Original')
-    #
-    # # y_pi = _translated_meshgrids[1] / np.pi
-    # # unit = 0.5
-    # # y_tick = np.arange(-0.5, 0.5 + unit, unit)
-    # # y_label = [r"$-\frac{\pi}{2}$", r"$0$", r"$+\frac{\pi}{2}$"]
-    #
-    # ax = fig.add_subplot(1, 2, 2, projection='3d')
-    # ax.plot_surface(
-    #     *_translated_meshgrids,
-    #     rstride=1,
-    #     cstride=1,
-    #     cmap='viridis',
-    #     edgecolor='none'
-    # )
-    # # ax.set_yticks(y_tick * np.pi)
-    # # ax.set_yticklabels(y_label, fontsize=8)
-    # ax.title.set_text('Translated')
-    # plt.show()
-
     return motion_kspace
 
 

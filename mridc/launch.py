@@ -36,6 +36,7 @@ from mridc.collections.segmentation.models.unet3d import Segmentation3DUNet
 from mridc.collections.segmentation.models.unetr import SegmentationUNetR
 from mridc.collections.segmentation.models.vnet import SegmentationVNet
 from mridc.collections.motioncorrection.models.cirim import MoCoCIRIM
+from mridc.collections.motioncorrection.models.zf import MoCoZF
 from mridc.core.conf.hydra_runner import hydra_runner
 from mridc.utils import logging
 from mridc.utils.exp_manager import exp_manager
@@ -120,6 +121,8 @@ def main(cfg: DictConfig) -> None:
         model = ZF(cfg.model, trainer=trainer)
     elif model_name == "MOCOCIRIM":
         model = MoCoCIRIM(cfg.model, trainer=trainer)
+    elif model_name == "MOCOZF":
+        model = MoCoZF(cfg.model, trainer=trainer)
     else:
         raise NotImplementedError(
             f"{model_name} is not implemented in MRIDC. You can use one of the following methods: "
@@ -132,7 +135,8 @@ def main(cfg: DictConfig) -> None:
     if cfg.get("pretrained", None):
         checkpoint = cfg.get("checkpoint", None)
         logging.info(f"Loading pretrained model from {checkpoint}")
-        model.load_state_dict(torch.load(checkpoint, map_location="cpu")["state_dict"])
+        model.load_state_dict(torch.load(
+            checkpoint, map_location="cpu")["state_dict"])
 
     if cfg.get("mode", None) == "train":
         logging.info("Validating")
