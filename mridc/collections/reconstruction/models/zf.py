@@ -58,6 +58,8 @@ class ZF(base_models.BaseMRIReconstructionModel, ABC):
                 normalize=cfg_dict.get("sens_normalize"),
             )
 
+        self.accumulate_estimates = False
+
     @common_classes.typecheck()
     def forward(
         self,
