@@ -14,10 +14,13 @@ import mridc.collections.common.parts.utils as utils
 import mridc.collections.reconstruction.models.base as base_models
 import mridc.core.classes.common as common_classes
 
-try:
-    import bart
-except:
-    pass
+import os
+import sys
+os.environ["TOOLBOX_PATH"] = "/opt/amc/bart-0.8.00/bin/"
+os.environ["PYTHONPATH"] = "/opt/amc/bart-0.8.00/python"
+sys.path.append(os.environ["TOOLBOX_PATH"])
+sys.path.append(os.environ["PYTHONPATH"])
+import bart
 
 
 __all__ = ["PICS"]
