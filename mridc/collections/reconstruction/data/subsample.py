@@ -316,7 +316,8 @@ class Gaussian1DMaskFunc(MaskFunc):
         """
         dims = [1 for _ in shape]
         self.shape = tuple(shape[-3:-1])
-        dims[-2] = self.shape[-1]
+        self.shape = (self.shape[1], self.shape[0])
+        dims[-2] = self.shape[-2]
 
         full_width_half_maximum, acceleration = self.choose_acceleration()
         if not isinstance(full_width_half_maximum, list):
@@ -334,7 +335,32 @@ class Gaussian1DMaskFunc(MaskFunc):
         if half_scan_percentage != 0:
             mask[: int(np.round(mask.shape[0] * half_scan_percentage)), :] = 0.0
 
-        return torch.from_numpy(mask[0].reshape(dims).astype(np.float32)), acceleration
+        return torch.from_numpy(np.transpose(mask, (1, 0))[0].reshape(*dims).astype(np.float32)), acceleration
+    
+        """
+        # For 1D mask in other direction
+        dims = [1 for _ in shape]
+        self.shape = tuple(shape[-3:-1])
+        dims[-3] = self.shape[0]
+
+        full_width_half_maximum, acceleration = self.choose_acceleration()
+        if not isinstance(full_width_half_maximum, list):
+            full_width_half_maximum = [full_width_half_maximum] * 2
+        self.full_width_half_maximum = full_width_half_maximum
+        self.acceleration = acceleration
+
+        self.scale = scale
+
+        mask = self.gaussian_kspace()
+        mask[tuple(self.gaussian_coordinates())] = 1.0
+
+        mask = np.fft.ifftshift(np.fft.ifftshift(np.fft.ifftshift(mask, axes=0), axes=0), axes=(0, 1))
+
+        if half_scan_percentage != 0:
+            mask[: int(np.round(mask.shape[0] * half_scan_percentage)), :] = 0.0
+
+        return torch.from_numpy(mask[:, 0].reshape(dims).astype(np.float32)), acceleration
+        """
 
     def gaussian_kspace(self):
         """Creates a Gaussian sampled k-space center."""
@@ -345,6 +371,17 @@ class Gaussian1DMaskFunc(MaskFunc):
         top = np.zeros((top_scaled, self.shape[1]))
         btm = np.zeros((bottom_scaled, self.shape[1]))
         return np.concatenate((top, center, btm))
+    
+    # def gaussian_kspace(self):
+    #     print(self.shape)
+    #     """Creates a Gaussian sampled k-space center."""
+    #     scaled = int(self.shape[1] * self.scale)
+    #     center = np.ones((scaled, self.shape[0]))
+    #     top_scaled = torch.div((self.shape[1] - scaled), 2, rounding_mode="trunc").item()
+    #     bottom_scaled = self.shape[1] - scaled - top_scaled
+    #     top = np.zeros((top_scaled, self.shape[0]))
+    #     btm = np.zeros((bottom_scaled, self.shape[0]))
+    #     return np.concatenate((top, center, btm))
 
     def gaussian_coordinates(self):
         """Creates a Gaussian sampled k-space coordinates."""
@@ -354,6 +391,15 @@ class Gaussian1DMaskFunc(MaskFunc):
         xsamples = np.concatenate([np.tile(i, self.shape[1]) for i in idxs])
         ysamples = np.concatenate([range(self.shape[1]) for _ in idxs])
         return xsamples, ysamples
+
+    # def gaussian_coordinates(self):
+    #     """Creates a Gaussian sampled k-space coordinates."""
+    #     n_sample = int(self.shape[1] / self.acceleration)
+    #     kernel = self.gaussian_kernel()
+    #     idxs = np.random.choice(range(self.shape[1]), size=n_sample, replace=False, p=kernel)
+    #     xsamples = np.concatenate([np.tile(i, self.shape[0]) for i in idxs])
+    #     ysamples = np.concatenate([range(self.shape[0]) for _ in idxs])
+    #     return xsamples, ysamples
 
     def gaussian_kernel(self):
         """Creates a Gaussian sampled k-space kernel."""
