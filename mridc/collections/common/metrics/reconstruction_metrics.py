@@ -27,7 +27,7 @@ def psnr(gt: np.ndarray, pred: np.ndarray, maxval: np.ndarray = None) -> float:
 
 def ssim(gt: np.ndarray, pred: np.ndarray, maxval: np.ndarray = None) -> float:
     """Compute Structural Similarity Index Metric (SSIM)"""
-    if gt.ndim != 3 or gt.ndim != 2:
+    if gt.ndim != 3 and gt.ndim != 2:
         raise ValueError("Unexpected number of dimensions in ground truth.")
     if gt.ndim != pred.ndim:
         raise ValueError("Ground truth dimensions does not match pred.")
